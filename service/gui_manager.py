@@ -653,6 +653,8 @@ class GUI:
                 "현재 목표 열량"
             ].syncWidget()
             main_window.pages["defaultPage"].widgets["결과"].syncWidget()
+            if result.get("warning"):
+                messagebox.showinfo("목표 열량", result["warning"])
 
         defaultpage.addWidget(
             name="날짜 메뉴",
@@ -2530,7 +2532,12 @@ class GUI:
                 )
 
         def submit_food_search(widget):
-            op.searchFoods(food_search_widget.obj.get())
+            query = food_search_widget.obj.get().strip()
+            if not query:
+                messagebox.showinfo(
+                    "음식 검색", "값이 없어 전체 항목이 정렬됩니다"
+                )
+            op.searchFoods(query)
             food_results_content.syncWidget()
 
         def sync_clear_entry(widget):

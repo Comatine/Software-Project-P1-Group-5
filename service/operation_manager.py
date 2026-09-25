@@ -450,6 +450,7 @@ class OperationManager:
     @staticmethod
     def setTargetCalories(value):
         raw_value = str(value if value is not None else "").strip()
+        was_negative = False
         if not raw_value:
             calories = 0
         else:
@@ -465,7 +466,11 @@ class OperationManager:
                     "ok": False,
                     "message": "목표 열량에는 숫자를 기입해주세요!",
                 }
-            calories = int(calories) if calories.is_integer() else calories
+            if calories < 0:
+                calories = 0
+                was_negative = True
+            else:
+                calories = int(calories) if calories.is_integer() else calories
 
         try:
             Data.saveTargetCalories(calories)
@@ -474,7 +479,10 @@ class OperationManager:
                 "ok": False,
                 "message": f"목표 열량을 저장하지 못했습니다.\n{error}",
             }
-        return {"ok": True, "target_calories": calories}
+        result = {"ok": True, "target_calories": calories}
+        if was_negative:
+            result["warning"] = "열량은 음수가 될 수 없습니다."
+        return result
 
     @staticmethod
     def addFood(selected_date: date | datetime, meal: str, food_id):
