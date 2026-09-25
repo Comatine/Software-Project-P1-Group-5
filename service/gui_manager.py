@@ -433,6 +433,10 @@ class GUI:
             page.style = {"bg": "#B7BEFF"}
 
         defaultpage = main_window.pages["defaultPage"]
+        main_meal_scroll_targets = {}
+
+        def no_sync(widget):
+            return None
 
         def sync_main_date(widget):
             widget.style = {
@@ -445,16 +449,153 @@ class GUI:
                 "justify": "left",
             }
 
-        def sync_main_food(widget):
+        def sync_main_meal_list(widget, meal):
+            meal_data = op.getManagementData(op.getSelectedDate())["meals"][meal]
+            for child in list(widget.childWidgets.values()):
+                child.destroy()
+            widget.childWidgets.clear()
+
+            if not meal_data:
+                widget.addChildWidget(
+                    name="등록된 음식 없음",
+                    widgetType="Label",
+                    style={
+                        "text": "등록된 음식이 없습니다.",
+                        "bg": "#D1D6FF",
+                        "fg": "#626FCB",
+                        "font": ("Malgun Gothic", 9),
+                        "anchor": "w",
+                    },
+                    placeType="pack",
+                    placeAttribute={"fill": "x", "padx": 3, "pady": 1},
+                    sync=no_sync,
+                )
+            else:
+                for index, item in enumerate(meal_data):
+                    widget.addChildWidget(
+                        name=f"음식 {index}",
+                        widgetType="Label",
+                        style={
+                            "text": item["text"],
+                            "bg": "#D1D6FF",
+                            "fg": "#626FCB",
+                            "font": ("Malgun Gothic", 9),
+                            "anchor": "w",
+                        },
+                        placeType="pack",
+                        placeAttribute={"fill": "x", "padx": 3, "pady": 1},
+                        sync=no_sync,
+                    )
+
+            scroll_target = main_meal_scroll_targets.get(meal)
+            if scroll_target is not None:
+
+                def refresh_scroll_region():
+                    canvas_obj = scroll_target["canvas"]
+                    canvas_obj.update_idletasks()
+                    content_height = max(scroll_target["content"].winfo_reqheight(), 1)
+                    canvas_obj.itemconfigure(
+                        scroll_target["window"], height=content_height
+                    )
+                    canvas_obj.configure(scrollregion=canvas_obj.bbox("all"))
+
+                scroll_target["canvas"].after_idle(refresh_scroll_region)
+
+        def make_main_meal_scrollable_area(parent, meal):
+            parent.addChildWidget(
+                name="음식 목록 영역",
+                widgetType="Frame",
+                style={"bg": "#D1D6FF"},
+                placeType="pack",
+                placeAttribute={"fill": "both", "expand": 1, "padx": 3, "pady": 2},
+                sync=no_sync,
+            )
+            outer = parent.childWidgets["음식 목록 영역"]
+            outer.addChildWidget(
+                name="스크롤 프레임",
+                widgetType="Frame",
+                style={"bg": "#D1D6FF"},
+                placeType="pack",
+                placeAttribute={"fill": "both", "expand": 1},
+                sync=no_sync,
+            )
+            scroll_frame = outer.childWidgets["스크롤 프레임"]
+            scroll_frame.obj.grid_rowconfigure(0, weight=1)
+            scroll_frame.obj.grid_columnconfigure(0, weight=1)
+            scroll_frame.addChildWidget(
+                name="목록 캔버스",
+                widgetType="Canvas",
+                style={"bg": "#D1D6FF", "highlightthickness": 0},
+                placeType="grid",
+                placeAttribute={"row": 0, "column": 0, "sticky": "nsew"},
+                sync=no_sync,
+            )
+            scroll_frame.addChildWidget(
+                name="세로 스크롤",
+                widgetType="Scrollbar",
+                style={
+                    "orient": "vertical",
+                    "width": 14,
+                    "bg": "#8C62FF",
+                    "activebackground": "#653CD6",
+                    "troughcolor": "#B7BEFF",
+                    "borderwidth": 1,
+                    "highlightthickness": 0,
+                },
+                placeType="grid",
+                placeAttribute={"row": 0, "column": 1, "sticky": "ns"},
+                sync=no_sync,
+            )
+            canvas = scroll_frame.childWidgets["목록 캔버스"]
+            scrollbar = scroll_frame.childWidgets["세로 스크롤"]
+            canvas.obj.configure(yscrollcommand=scrollbar.obj.set)
+            scrollbar.obj.configure(command=canvas.obj.yview)
+            canvas.addChildWidget(
+                name="목록 내용",
+                widgetType="Frame",
+                style={"bg": "#D1D6FF"},
+                placeType=None,
+                placeAttribute={},
+                sync=lambda widget, selected_meal=meal: sync_main_meal_list(
+                    widget, selected_meal
+                ),
+            )
+            content = canvas.childWidgets["목록 내용"]
+            canvas_window = canvas.obj.create_window(
+                (0, 0), window=content.obj, anchor="nw"
+            )
+            content.obj.bind(
+                "<Configure>",
+                lambda event, target=canvas.obj: target.configure(
+                    scrollregion=target.bbox("all")
+                ),
+            )
+            canvas.obj.bind(
+                "<Configure>",
+                lambda event, target=canvas.obj, item=canvas_window: (
+                    target.itemconfigure(item, width=event.width)
+                ),
+            )
+            main_meal_scroll_targets[meal] = {
+                "canvas": canvas.obj,
+                "content": content.obj,
+                "window": canvas_window,
+            }
+            return content
+
+        def sync_main_meal_summary(widget):
+            data = op.getManagementData(op.getSelectedDate())
+            weight = data["weight"]
+            weight_text = "미입력" if weight is None or weight == "" else f"{weight} kg"
             widget.style = {
-                "bg": "#D1D6FF",
-                "highlightbackground": "#919CFD",
-                "highlightthickness": 3,
-                "text": op.getFood(op.getSelectedDate()),
-                "font": ("Malgun Gothic", 14, "bold"),
-                "fg": "#919CFD",
-                "justify": "left",
-                "anchor": "nw",
+                "text": (
+                    f"총 섭취 열량: {data['total_calories']:g} kcal     "
+                    f"체중: {weight_text}"
+                ),
+                "bg": "#8C62FF",
+                "fg": "#D9DDFF",
+                "font": ("Malgun Gothic", 12, "bold"),
+                "anchor": "w",
             }
 
         def sync_main_weight_status(widget):
@@ -465,8 +606,8 @@ class GUI:
                 "text": op.getRecentWeightSummary(),
                 "font": ("Malgun Gothic", 16, "bold"),
                 "fg": "#919CFD",
-                "justify": "left",
-                "anchor": "w",
+                "justify": "center",
+                "anchor": "n",
             }
 
         def sync_main_result(widget):
@@ -488,7 +629,42 @@ class GUI:
                 "anchor": "w",
             }
 
+        def sync_main_target_calories(widget):
+            widget.style = {
+                "text": f"현재 목표: {op.getTargetCalories():g} kcal",
+                "bg": "#8C62FF",
+                "fg": "#D9DDFF",
+                "font": ("Malgun Gothic", 12, "bold"),
+                "anchor": "e",
+            }
+
+        def confirm_main_target_calories(widget):
+            target_entry = (
+                main_window.pages["defaultPage"]
+                .widgets["목표 열량 프레임"]
+                .childWidgets["목표 열량 입력"]
+            )
+            result = op.setTargetCalories(target_entry.obj.get())
+            if not result["ok"]:
+                messagebox.showerror("목표 열량", result["message"])
+                return
+            target_entry.obj.delete(0, "end")
+            main_window.pages["defaultPage"].widgets["목표 열량 프레임"].childWidgets[
+                "현재 목표 열량"
+            ].syncWidget()
+            main_window.pages["defaultPage"].widgets["결과"].syncWidget()
+
         defaultpage.addWidget(
+            name="날짜 메뉴",
+            widgetType="Frame",
+            style={"bg": "#B7BEFF", "height": 60},
+            placeType="pack",
+            placeAttribute={"fill": "x", "padx": 12, "pady": (10, 6)},
+            sync=no_sync,
+        )
+        date_menu = defaultpage.widgets["날짜 메뉴"]
+        date_menu.obj.pack_propagate(False)
+        date_menu.addChildWidget(
             name="날짜 제목",
             widgetType="Label",
             style={
@@ -496,20 +672,14 @@ class GUI:
                 "highlightbackground": "#919CFD",
                 "highlightthickness": 3,
                 "text": "날짜",
-                "font": ("Malgun Gothic", 25, "bold"),
+                "font": ("Malgun Gothic", 22, "bold"),
                 "fg": "#919CFD",
             },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 20,
-                "y": 50,
-                "width": 120,
-                "height": 60,
-            },
+            placeType="pack",
+            placeAttribute={"side": "left", "fill": "y", "padx": (0, 8)},
+            sync=no_sync,
         )
-
-        defaultpage.addWidget(
+        date_menu.addChildWidget(
             name="날짜",
             widgetType="Label",
             style={
@@ -517,40 +687,43 @@ class GUI:
                 "highlightbackground": "#919CFD",
                 "highlightthickness": 3,
                 "text": "Loading",
-                "font": ("Malgun Gothic", 18, "bold"),
+                "font": ("Malgun Gothic", 15, "bold"),
                 "fg": "#919CFD",
                 "justify": "left",
             },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 160,
-                "y": 50,
-                "width": 180,
-                "height": 60,
-            },
+            placeType="pack",
+            placeAttribute={"side": "left", "fill": "both", "expand": 1},
             sync=sync_main_date,
         )
-
-        defaultpage.addWidget(
+        date_menu.addChildWidget(
+            name="관리",
+            widgetType="Button",
+            style={
+                "bg": "#D1D6FF",
+                "text": "식단 관리",
+                "font": ("Malgun Gothic", 12, "bold"),
+                "fg": "#919CFD",
+                "activebackground": "#8997FF",
+                "activeforeground": "#3140B3",
+            },
+            placeType="pack",
+            placeAttribute={"side": "right", "fill": "y", "padx": (6, 0)},
+            sync=no_sync,
+        )
+        date_menu.addChildWidget(
             name="조회",
             widgetType="Button",
             style={
                 "bg": "#D1D6FF",
                 "text": "식단 조회",
-                "font": ("Malgun Gothic", 14, "bold"),
+                "font": ("Malgun Gothic", 12, "bold"),
                 "fg": "#919CFD",
                 "activebackground": "#8997FF",
                 "activeforeground": "#3140B3",
             },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 360,
-                "y": 50,
-                "width": 100,
-                "height": 40,
-            },
+            placeType="pack",
+            placeAttribute={"side": "right", "fill": "y", "padx": (6, 0)},
+            sync=no_sync,
         )
 
         def onRecordReadButton(widget: Widget):
@@ -567,28 +740,7 @@ class GUI:
                 show_food_for_date(selected_date["value"])
                 window.changePage("calendarReadPage")
 
-        defaultpage.widgets["조회"].event = onRecordReadButton
-
-        defaultpage.addWidget(
-            name="관리",
-            widgetType="Button",
-            style={
-                "bg": "#D1D6FF",
-                "text": "식단 관리",
-                "font": ("Malgun Gothic", 14, "bold"),
-                "fg": "#919CFD",
-                "activebackground": "#8997FF",
-                "activeforeground": "#3140B3",
-            },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 480,
-                "y": 50,
-                "width": 100,
-                "height": 40,
-            },
-        )
+        date_menu.childWidgets["조회"].event = onRecordReadButton
 
         def onRecordManageButton(widget: Widget):
             window = widget.parent
@@ -603,7 +755,7 @@ class GUI:
                 op.beginRecordManage(managed_date["value"])
                 window.changePage("recordManagePage")
 
-        defaultpage.widgets["관리"].event = onRecordManageButton
+        date_menu.childWidgets["관리"].event = onRecordManageButton
 
         defaultpage.addWidget(
             name="식단표 타이틀",
@@ -615,40 +767,77 @@ class GUI:
                 "text": "식  단  표",
                 "font": ("Malgun Gothic", 22, "bold"),
                 "fg": "#D9DDFF",
+                "height": 1,
             },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 20,
-                "y": 130,
-                "width": 560,
-                "height": 60,
-            },
+            placeType="pack",
+            placeAttribute={"fill": "x", "padx": 12, "pady": (0, 5)},
         )
 
         defaultpage.addWidget(
-            name="식단표",
-            widgetType="Label",
+            name="식단표 프레임",
+            widgetType="Frame",
             style={
                 "bg": "#D1D6FF",
                 "highlightbackground": "#919CFD",
                 "highlightthickness": 3,
-                "text": "아침 : 피자 \n점심 : 피자 \n저녁 : 피자 \n야식 : 피자 \n\n체중 : 99.5 (Kg)\n일일 섭취 열량 : 231 (Kcal)",
-                "font": ("Malgun Gothic", 18, "bold"),
-                "fg": "#919CFD",
-                "justify": "left",
-                "anchor": "nw",
             },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 20,
-                "y": 300,
-                "width": 560,
-                "height": 240,
-            },
-            sync=sync_main_food,
+            placeType="pack",
+            placeAttribute={"fill": "both", "expand": 1, "padx": 12, "pady": 5},
+            sync=no_sync,
         )
+        main_diet_frame = defaultpage.widgets["식단표 프레임"]
+        main_diet_frame.addChildWidget(
+            name="일일 요약",
+            widgetType="Label",
+            style={
+                "bg": "#8C62FF",
+                "fg": "#D9DDFF",
+                "font": ("Malgun Gothic", 12, "bold"),
+                "height": 1,
+            },
+            placeType="pack",
+            placeAttribute={"side": "bottom", "fill": "x", "padx": 2, "pady": (3, 0)},
+            sync=sync_main_meal_summary,
+        )
+        main_diet_frame.addChildWidget(
+            name="시간대 식단",
+            widgetType="Frame",
+            style={"bg": "#D1D6FF"},
+            placeType="pack",
+            placeAttribute={"fill": "both", "expand": 1},
+            sync=no_sync,
+        )
+        main_meal_grid = main_diet_frame.childWidgets["시간대 식단"]
+        for meal_layout in op.getMealCardLayout():
+            meal = meal_layout["name"]
+            main_meal_grid.addChildWidget(
+                name=meal,
+                widgetType="Frame",
+                style={
+                    "bg": "#D1D6FF",
+                    "highlightbackground": "#919CFD",
+                    "highlightthickness": 2,
+                },
+                placeType="place",
+                placeAttribute=meal_layout["place"],
+                sync=no_sync,
+            )
+            meal_card = main_meal_grid.childWidgets[meal]
+            meal_card.addChildWidget(
+                name="제목",
+                widgetType="Label",
+                style={
+                    "text": meal,
+                    "bg": "#D1D6FF",
+                    "fg": "#626FCB",
+                    "font": ("Malgun Gothic", 11, "bold"),
+                    "anchor": "w",
+                },
+                placeType="pack",
+                placeAttribute={"fill": "x", "padx": 3, "pady": (2, 0)},
+                sync=no_sync,
+            )
+            make_main_meal_scrollable_area(meal_card, meal)
 
         defaultpage.addWidget(
             name="체중 현황 타이틀",
@@ -660,15 +849,10 @@ class GUI:
                 "text": "최근 체중 변화",
                 "font": ("Malgun Gothic", 22, "bold"),
                 "fg": "#D9DDFF",
+                "height": 1,
             },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 20,
-                "y": 470,
-                "width": 560,
-                "height": 60,
-            },
+            placeType="pack",
+            placeAttribute={"fill": "x", "padx": 12, "pady": (4, 3)},
         )
 
         defaultpage.addWidget(
@@ -681,38 +865,78 @@ class GUI:
                 "text": "7일전 88.8(Kg) -> 현재 65.4(Kg) / ▼23.4 (Kg)▼",
                 "font": ("Malgun Gothic", 16, "bold"),
                 "fg": "#919CFD",
-                "justify": "left",
+                "anchor": "n",
+                "justify": "center",
+                "height": 3,
             },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 20,
-                "y": 560,
-                "width": 560,
-                "height": 80,
-            },
+            placeType="pack",
+            placeAttribute={"fill": "x", "padx": 12, "pady": (0, 6)},
             sync=sync_main_weight_status,
         )
 
         defaultpage.addWidget(
-            name="결과 타이틀",
-            widgetType="Label",
+            name="목표 열량 프레임",
+            widgetType="Frame",
             style={
                 "bg": "#8C62FF",
                 "highlightbackground": "#653CD6",
                 "highlightthickness": 3,
-                "text": "결과",
-                "font": ("Malgun Gothic", 22, "bold"),
+            },
+            placeType="pack",
+            placeAttribute={"fill": "x", "padx": 12, "pady": (0, 6)},
+            sync=no_sync,
+        )
+        target_calorie_frame = defaultpage.widgets["목표 열량 프레임"]
+        target_calorie_frame.obj.configure(height=58)
+        target_calorie_frame.obj.pack_propagate(False)
+        target_calorie_frame.addChildWidget(
+            name="목표 열량 안내",
+            widgetType="Label",
+            style={
+                "text": "목표(kcal)",
+                "bg": "#8C62FF",
                 "fg": "#D9DDFF",
+                "font": ("Malgun Gothic", 10, "bold"),
             },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 20,
-                "y": 650,
-                "width": 560,
-                "height": 60,
+            placeType="pack",
+            placeAttribute={"side": "left", "padx": 5},
+            sync=no_sync,
+        )
+        target_calorie_frame.addChildWidget(
+            name="목표 열량 입력",
+            widgetType="Entry",
+            style={
+                "bg": "#D1D6FF",
+                "fg": "#626FCB",
+                "font": ("Malgun Gothic", 11),
+                "width": 8,
             },
+            placeType="pack",
+            placeAttribute={"side": "left", "fill": "y", "padx": 3},
+            sync=no_sync,
+        )
+        target_calorie_frame.addChildWidget(
+            name="목표 열량 확인",
+            widgetType="Button",
+            style={
+                "text": "확인",
+                "bg": "#D1D6FF",
+                "fg": "#626FCB",
+                "font": ("Malgun Gothic", 10, "bold"),
+                "activebackground": "#8997FF",
+            },
+            placeType="pack",
+            placeAttribute={"side": "left", "fill": "y", "padx": 3},
+            sync=no_sync,
+            event=confirm_main_target_calories,
+        )
+        target_calorie_frame.addChildWidget(
+            name="현재 목표 열량",
+            widgetType="Label",
+            style={"bg": "#8C62FF", "fg": "#D9DDFF"},
+            placeType="pack",
+            placeAttribute={"side": "right", "fill": "x", "expand": 1, "padx": 8},
+            sync=sync_main_target_calories,
         )
 
         defaultpage.addWidget(
@@ -726,24 +950,18 @@ class GUI:
                 "font": ("Malgun Gothic", 20, "bold"),
                 "fg": "#41A169",
                 "justify": "left",
+                "height": 3,
             },
-            placeType="place",
-            placeAttribute={
-                "anchor": "w",
-                "x": 20,
-                "y": 740,
-                "width": 560,
-                "height": 80,
-            },
+            placeType="pack",
+            placeAttribute={"fill": "x", "padx": 12, "pady": (0, 10)},
             sync=sync_main_result,
         )
 
         calendarReadPage = main_window.pages["calendarReadPage"]
         selected_date = {"value": None}
         calendar_data = op.getCalendar()
-
-        def no_sync(widget):
-            return None
+        calendar_meal_list_widgets = {}
+        calendar_meal_scroll_targets = {}
 
         calendarReadPage.addWidget(
             name="달력 프레임",
@@ -862,7 +1080,9 @@ class GUI:
         def show_food_for_date(selected):
             selected_date["value"] = selected
             calendar_frame.childWidgets["조회 식단 제목"].syncWidget()
-            calendar_frame.childWidgets["조회 식단 내용"].syncWidget()
+            for meal_list in calendar_meal_list_widgets.values():
+                meal_list.syncWidget()
+            calendar_frame.childWidgets["조회 식단 요약"].syncWidget()
 
         def change_month(offset):
             draw_calendar(op.changeCalendarMonth(offset))
@@ -941,17 +1161,172 @@ class GUI:
                 "font": ("Malgun Gothic", 18, "bold"),
             }
 
-        def sync_calendar_food(widget):
+        def sync_calendar_meal_summary(widget):
+            if selected_date["value"] is None:
+                text = "날짜를 선택해 주세요."
+            else:
+                data = op.getManagementData(selected_date["value"])
+                weight = data["weight"]
+                weight_text = (
+                    "미입력" if weight is None or weight == "" else f"{weight} kg"
+                )
+                text = (
+                    f"총 섭취 열량: {data['total_calories']:g} kcal     "
+                    f"체중: {weight_text}"
+                )
             widget.style = {
-                "text": op.getFood(selected_date["value"]),
-                "bg": "#D1D6FF",
-                "fg": "#626FCB",
-                "font": ("Malgun Gothic", 18, "bold"),
-                "justify": "left",
-                "anchor": "nw",
-                "wraplength": 520,
-                "height": 5,
+                "text": text,
+                "bg": "#8C62FF",
+                "fg": "#D9DDFF",
+                "font": ("Malgun Gothic", 12, "bold"),
+                "anchor": "w",
             }
+
+        def sync_calendar_meal_list(widget, meal):
+            for child in list(widget.childWidgets.values()):
+                child.destroy()
+            widget.childWidgets.clear()
+
+            meal_items = []
+            if selected_date["value"] is not None:
+                meal_items = op.getManagementData(selected_date["value"])["meals"][meal]
+
+            if not meal_items:
+                empty_text = (
+                    "날짜를 선택해 주세요."
+                    if selected_date["value"] is None
+                    else "등록된 음식이 없습니다."
+                )
+                widget.addChildWidget(
+                    name="등록된 음식 없음",
+                    widgetType="Label",
+                    style={
+                        "text": empty_text,
+                        "bg": "#D1D6FF",
+                        "fg": "#626FCB",
+                        "font": ("Malgun Gothic", 9),
+                        "anchor": "nw",
+                        "justify": "left",
+                        "wraplength": 105,
+                    },
+                    placeType="pack",
+                    placeAttribute={"fill": "x", "padx": 3, "pady": 2},
+                    sync=no_sync,
+                )
+            else:
+                for index, item in enumerate(meal_items):
+                    widget.addChildWidget(
+                        name=f"음식 {index}",
+                        widgetType="Label",
+                        style={
+                            "text": item["text"],
+                            "bg": "#D1D6FF",
+                            "fg": "#626FCB",
+                            "font": ("Malgun Gothic", 9),
+                            "anchor": "nw",
+                            "justify": "left",
+                            "wraplength": 105,
+                        },
+                        placeType="pack",
+                        placeAttribute={"fill": "x", "padx": 3, "pady": 2},
+                        sync=no_sync,
+                    )
+
+            scroll_target = calendar_meal_scroll_targets.get(meal)
+            if scroll_target is not None:
+
+                def refresh_scroll_region():
+                    canvas_obj = scroll_target["canvas"]
+                    canvas_obj.update_idletasks()
+                    content_height = max(scroll_target["content"].winfo_reqheight(), 1)
+                    canvas_obj.itemconfigure(
+                        scroll_target["window"], height=content_height
+                    )
+                    canvas_obj.configure(scrollregion=canvas_obj.bbox("all"))
+
+                scroll_target["canvas"].after_idle(refresh_scroll_region)
+
+        def make_calendar_meal_scrollable_area(parent, meal):
+            parent.addChildWidget(
+                name="음식 목록 영역",
+                widgetType="Frame",
+                style={"bg": "#D1D6FF"},
+                placeType="pack",
+                placeAttribute={"fill": "both", "expand": 1, "padx": 2, "pady": 2},
+                sync=no_sync,
+            )
+            outer = parent.childWidgets["음식 목록 영역"]
+            outer.addChildWidget(
+                name="스크롤 프레임",
+                widgetType="Frame",
+                style={"bg": "#D1D6FF"},
+                placeType="pack",
+                placeAttribute={"fill": "both", "expand": 1},
+                sync=no_sync,
+            )
+            scroll_frame = outer.childWidgets["스크롤 프레임"]
+            scroll_frame.obj.grid_rowconfigure(0, weight=1)
+            scroll_frame.obj.grid_columnconfigure(0, weight=1)
+            scroll_frame.addChildWidget(
+                name="목록 캔버스",
+                widgetType="Canvas",
+                style={"bg": "#D1D6FF", "highlightthickness": 0},
+                placeType="grid",
+                placeAttribute={"row": 0, "column": 0, "sticky": "nsew"},
+                sync=no_sync,
+            )
+            scroll_frame.addChildWidget(
+                name="세로 스크롤",
+                widgetType="Scrollbar",
+                style={
+                    "orient": "vertical",
+                    "width": 10,
+                    "bg": "#8C62FF",
+                    "activebackground": "#653CD6",
+                    "troughcolor": "#B7BEFF",
+                    "borderwidth": 1,
+                    "highlightthickness": 0,
+                },
+                placeType="grid",
+                placeAttribute={"row": 0, "column": 1, "sticky": "ns"},
+                sync=no_sync,
+            )
+            canvas = scroll_frame.childWidgets["목록 캔버스"]
+            scrollbar = scroll_frame.childWidgets["세로 스크롤"]
+            canvas.obj.configure(yscrollcommand=scrollbar.obj.set)
+            scrollbar.obj.configure(command=canvas.obj.yview)
+            canvas.addChildWidget(
+                name="목록 내용",
+                widgetType="Frame",
+                style={"bg": "#D1D6FF"},
+                placeType=None,
+                placeAttribute={},
+                sync=lambda widget, selected_meal=meal: sync_calendar_meal_list(
+                    widget, selected_meal
+                ),
+            )
+            content = canvas.childWidgets["목록 내용"]
+            canvas_window = canvas.obj.create_window(
+                (0, 0), window=content.obj, anchor="nw"
+            )
+            content.obj.bind(
+                "<Configure>",
+                lambda event, target=canvas.obj: target.configure(
+                    scrollregion=target.bbox("all")
+                ),
+            )
+            canvas.obj.bind(
+                "<Configure>",
+                lambda event, target=canvas.obj, item=canvas_window: (
+                    target.itemconfigure(item, width=event.width)
+                ),
+            )
+            calendar_meal_scroll_targets[meal] = {
+                "canvas": canvas.obj,
+                "content": content.obj,
+                "window": canvas_window,
+            }
+            return content
 
         calendar_frame.addChildWidget(
             name="조회 식단 제목",
@@ -967,21 +1342,59 @@ class GUI:
             sync=sync_calendar_food_title,
         )
         calendar_frame.addChildWidget(
-            name="조회 식단 내용",
+            name="조회 식단 목록",
+            widgetType="Frame",
+            style={"bg": "#B7BEFF"},
+            placeType="pack",
+            placeAttribute={"fill": "both", "expand": 1, "pady": (4, 0)},
+            sync=no_sync,
+        )
+        calendar_meal_grid = calendar_frame.childWidgets["조회 식단 목록"]
+        for meal_layout in op.getMealReadColumnLayout():
+            meal = meal_layout["name"]
+            calendar_meal_grid.addChildWidget(
+                name=meal,
+                widgetType="Frame",
+                style={
+                    "bg": "#D1D6FF",
+                    "highlightbackground": "#919CFD",
+                    "highlightthickness": 2,
+                },
+                placeType="place",
+                placeAttribute=meal_layout["place"],
+                sync=no_sync,
+            )
+            meal_card = calendar_meal_grid.childWidgets[meal]
+            meal_card.addChildWidget(
+                name="제목",
+                widgetType="Label",
+                style={
+                    "text": meal,
+                    "bg": "#D1D6FF",
+                    "fg": "#626FCB",
+                    "font": ("Malgun Gothic", 11, "bold"),
+                    "anchor": "w",
+                },
+                placeType="pack",
+                placeAttribute={"fill": "x", "padx": 4, "pady": (3, 0)},
+                sync=no_sync,
+            )
+            calendar_meal_list_widgets[meal] = make_calendar_meal_scrollable_area(
+                meal_card, meal
+            )
+        calendar_frame.addChildWidget(
+            name="조회 식단 요약",
             widgetType="Label",
             style={
-                "text": "",
-                "bg": "#D1D6FF",
-                "fg": "#626FCB",
-                "font": ("Malgun Gothic", 18, "bold"),
-                "justify": "left",
-                "anchor": "nw",
-                "wraplength": 520,
-                "height": 5,
+                "text": "날짜를 선택해 주세요.",
+                "bg": "#8C62FF",
+                "fg": "#D9DDFF",
+                "font": ("Malgun Gothic", 12, "bold"),
+                "anchor": "w",
             },
             placeType="pack",
-            placeAttribute={"fill": "x", "pady": (4, 0)},
-            sync=sync_calendar_food,
+            placeAttribute={"fill": "x", "pady": (3, 0)},
+            sync=sync_calendar_meal_summary,
         )
         calendar_frame.addChildWidget(
             name="조회 결정 메뉴",
@@ -1038,7 +1451,9 @@ class GUI:
         )
 
         calendar_frame.childWidgets["조회 식단 제목"].syncWidget()
-        calendar_frame.childWidgets["조회 식단 내용"].syncWidget()
+        for meal_list in calendar_meal_list_widgets.values():
+            meal_list.syncWidget()
+        calendar_frame.childWidgets["조회 식단 요약"].syncWidget()
 
         def confirm_selected_date(widget):
             if selected_date["value"] is not None:
@@ -1081,7 +1496,9 @@ class GUI:
             data = op.getManagementData(managed_date["value"])
             value = data["weight"]
             value_text = "미입력" if value is None or value == "" else f"{value} kg"
-            prefix = "입력 반영값 (확인 전)" if data["weight_pending"] else "저장된 체중"
+            prefix = (
+                "입력 반영값 (확인 전)" if data["weight_pending"] else "저장된 체중"
+            )
             widget.style = {
                 "text": f"{prefix}: {value_text}",
                 "bg": "#B7BEFF",
@@ -1116,9 +1533,7 @@ class GUI:
                 def apply_scroll_region():
                     canvas_obj = scroll_target["canvas"]
                     canvas_obj.update_idletasks()
-                    content_height = max(
-                        scroll_target["content"].winfo_reqheight(), 1
-                    )
+                    content_height = max(scroll_target["content"].winfo_reqheight(), 1)
                     canvas_obj.itemconfigure(
                         scroll_target["window"], height=content_height
                     )
@@ -1257,8 +1672,8 @@ class GUI:
             )
             canvas.obj.bind(
                 "<Configure>",
-                lambda event, target=canvas.obj, item=canvas_window: target.itemconfigure(
-                    item, width=event.width
+                lambda event, target=canvas.obj, item=canvas_window: (
+                    target.itemconfigure(item, width=event.width)
                 ),
             )
             meal_scroll_targets[meal] = {
@@ -1512,7 +1927,7 @@ class GUI:
                 messagebox.showerror("체중 입력", result["message"])
                 return
             refresh_record_manage()
-            defaultpage.widgets["식단표"].syncWidget()
+            defaultpage.widgets["식단표 프레임"].syncWidget()
 
         weight_menu.addChildWidget(
             name="체중 입력",

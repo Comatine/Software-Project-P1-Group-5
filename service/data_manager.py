@@ -6,6 +6,7 @@ import threading
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime
+from math import isfinite
 from pathlib import Path
 
 
@@ -24,8 +25,9 @@ def load(json_location):
 
 
 class DataManager:
-    # 일일 목표 섭취 열량 (kcal)
-    TARGET_CALORIES = 1200
+    # 기본 일일 목표 섭취 열량 (kcal)
+    DEFAULT_TARGET_CALORIES = 1200
+    TARGET_CALORIES = DEFAULT_TARGET_CALORIES
 
     data = {}
     foods = {}
@@ -70,14 +72,26 @@ class DataManager:
                         for data_name in ("records", "foods")
                     ):
                         raise FileNotFoundError("Records 또는 Foods 파일이 없습니다.")
-                    records = load(DataManager.source["records"])
+                    records_payload = load(DataManager.source["records"])
                     foods = load(DataManager.source["foods"])
-                    if not isinstance(records, dict) or not isinstance(foods, dict):
+                    records, target_calories, needs_migration = (
+                        DataManager._unpackRecordsPayload(records_payload)
+                    )
+                    if not isinstance(foods, dict):
                         raise ValueError(
                             "Records 또는 Foods의 최상위 값이 딕셔너리가 아닙니다."
                         )
                     DataManager.data = DataManager.sortRecords(records)
                     DataManager.foods = DataManager.sortFoods(foods)
+                    DataManager.TARGET_CALORIES = target_calories
+                    if needs_migration:
+                        try:
+                            DataManager.saveRecords()
+                        except Exception as migration_error:
+                            print(
+                                "Records.json 형식을 자동 변환하지 못했습니다. "
+                                f"다음 저장 때 다시 적용합니다: {migration_error}"
+                            )
                 except Exception as error:
                     if not is_initial_load:
                         raise
@@ -87,11 +101,40 @@ class DataManager:
             return DataManager.data, DataManager.foods
 
     @staticmethod
+    def _unpackRecordsPayload(payload):
+        if not isinstance(payload, dict):
+            raise ValueError("Records의 최상위 값이 딕셔너리가 아닙니다.")
+        if "records" not in payload:
+            return payload, DataManager.DEFAULT_TARGET_CALORIES, True
+
+        records = payload.get("records")
+        target_calories = payload.get(
+            "TARGET_CALORIES", DataManager.DEFAULT_TARGET_CALORIES
+        )
+        if not isinstance(records, dict):
+            raise ValueError("Records의 records 항목이 딕셔너리가 아닙니다.")
+        if (
+            isinstance(target_calories, bool)
+            or not isinstance(target_calories, (int, float))
+            or not isfinite(float(target_calories))
+        ):
+            raise ValueError("TARGET_CALORIES 값이 숫자가 아닙니다.")
+        return records, target_calories, False
+
+    @staticmethod
+    def _packRecordsPayload():
+        return {
+            "TARGET_CALORIES": DataManager.TARGET_CALORIES,
+            "records": DataManager.sortRecords(DataManager.data),
+        }
+
+    @staticmethod
     def _recoverInitialLoad(load_error):
         try:
-            records, foods = DataManager._loadLatestBackup()
+            records, foods, target_calories = DataManager._loadLatestBackup()
             DataManager.data = DataManager.sortRecords(records)
             DataManager.foods = DataManager.sortFoods(foods)
+            DataManager.TARGET_CALORIES = target_calories
             try:
                 DataManager.saveRecords()
                 DataManager.saveFoods()
@@ -111,6 +154,7 @@ class DataManager:
     def _initializeEmptyData():
         DataManager.data = {}
         DataManager.foods = {}
+        DataManager.TARGET_CALORIES = DataManager.DEFAULT_TARGET_CALORIES
         try:
             DataManager.saveRecords()
             DataManager.saveFoods()
@@ -141,11 +185,14 @@ class DataManager:
                         raise FileNotFoundError(
                             "백업 파일 한 쌍이 완성되지 않았습니다."
                         )
-                    records = load(records_path)
+                    records_payload = load(records_path)
                     foods = load(foods_path)
-                    if not isinstance(records, dict) or not isinstance(foods, dict):
+                    records, target_calories, _ = DataManager._unpackRecordsPayload(
+                        records_payload
+                    )
+                    if not isinstance(foods, dict):
                         raise ValueError("백업 파일의 최상위 값이 딕셔너리가 아닙니다.")
-                    return records, foods
+                    return records, foods, target_calories
                 except Exception as error:
                     errors.append(f"{time_directory}: {error}")
         detail = "; ".join(errors) if errors else "사용 가능한 백업이 없습니다."
@@ -213,7 +260,7 @@ class DataManager:
                 if source_path.is_file():
                     shutil.copy2(source_path, backup_path)
                 elif data_name == "records":
-                    save(backup_path, DataManager.sortRecords(DataManager.data))
+                    save(backup_path, DataManager._packRecordsPayload())
                 else:
                     save(backup_path, DataManager.sortFoods(DataManager.foods))
                 DataManager._setHidden(backup_path)
@@ -256,7 +303,14 @@ class DataManager:
     def saveRecords():
         with DataManager.transaction():
             DataManager.data = DataManager.sortRecords(DataManager.data)
-            save(DataManager.source["records"], DataManager.data)
+            save(DataManager.source["records"], DataManager._packRecordsPayload())
+
+    @staticmethod
+    def saveTargetCalories(target_calories):
+        with DataManager.transaction():
+            DataManager.loadData()
+            DataManager.TARGET_CALORIES = target_calories
+            DataManager.saveRecords()
 
     @staticmethod
     def saveFoods():

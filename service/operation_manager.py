@@ -115,7 +115,7 @@ class OperationManager:
                         "selected": cell_date == highlighted_date
                         if cell_date is not None
                         else False,
-                        "has_record": isinstance(calendar_record, dict),
+                        "has_record": OperationManager._recordHasData(calendar_record),
                         "has_food": OperationManager._recordHasFood(calendar_record),
                         "weekday_type": weekday_types[column],
                         "row": row,
@@ -163,9 +163,7 @@ class OperationManager:
         return previous_year_date + timedelta(days=1)
 
     @staticmethod
-    def changeCalendarMonth(
-        offset: int, selected_date: date | datetime | None = None
-    ):
+    def changeCalendarMonth(offset: int, selected_date: date | datetime | None = None):
         year, month = OperationManager._displayed_month
         month_index = year * 12 + month - 1 + offset
         minimum_date = OperationManager.getMinimumDate()
@@ -195,7 +193,11 @@ class OperationManager:
             record["시간대"] = meals
         for meal in ("아침", "점심", "저녁", "야식"):
             if not isinstance(meals.get(meal), list):
-                meals[meal] = list(meals.get(meal, [])) if isinstance(meals.get(meal), tuple) else []
+                meals[meal] = (
+                    list(meals.get(meal, []))
+                    if isinstance(meals.get(meal), tuple)
+                    else []
+                )
         return record
 
     @staticmethod
@@ -204,8 +206,10 @@ class OperationManager:
         date_key = selected_date.isoformat()
         if date_key not in OperationManager._record_manage_drafts:
             committed = Data.getRecordsSnapshot()
-            OperationManager._record_manage_drafts[date_key] = OperationManager._normalizeRecord(
-                committed.get(date_key) if isinstance(committed, dict) else None
+            OperationManager._record_manage_drafts[date_key] = (
+                OperationManager._normalizeRecord(
+                    committed.get(date_key) if isinstance(committed, dict) else None
+                )
             )
         return OperationManager.getManagementData(selected_date)
 
@@ -254,8 +258,7 @@ class OperationManager:
                     value
                     for value in record_values
                     if isinstance(value, dict)
-                    and str(value.get("date", value.get("날짜", "")))[:10]
-                    == date_key
+                    and str(value.get("date", value.get("날짜", "")))[:10] == date_key
                 ),
                 None,
             )
@@ -265,8 +268,7 @@ class OperationManager:
                     value
                     for value in records
                     if isinstance(value, dict)
-                    and str(value.get("date", value.get("날짜", "")))[:10]
-                    == date_key
+                    and str(value.get("date", value.get("날짜", "")))[:10] == date_key
                 ),
                 None,
             )
@@ -283,7 +285,9 @@ class OperationManager:
             return record is not None
         meals = record.get("시간대")
         if isinstance(meals, dict):
-            return any(isinstance(items, (list, tuple)) and items for items in meals.values())
+            return any(
+                isinstance(items, (list, tuple)) and items for items in meals.values()
+            )
         return record is not None
 
     @staticmethod
@@ -415,13 +419,62 @@ class OperationManager:
         ]
 
     @staticmethod
+    def getMealReadColumnLayout():
+        return [
+            {
+                "name": meal,
+                "place": {
+                    "relx": column / 4,
+                    "rely": 0,
+                    "relwidth": 0.25,
+                    "relheight": 1,
+                    "x": 2,
+                    "y": 2,
+                    "width": -4,
+                    "height": -4,
+                },
+            }
+            for column, meal in enumerate(("아침", "점심", "저녁", "야식"))
+        ]
+
+    @staticmethod
     def _getWritableRecord(selected_date: date):
         OperationManager.beginRecordManage(selected_date)
         return OperationManager._record_manage_drafts[selected_date.isoformat()]
 
     @staticmethod
     def getTargetCalories():
+        Data.loadData()
         return Data.TARGET_CALORIES
+
+    @staticmethod
+    def setTargetCalories(value):
+        raw_value = str(value if value is not None else "").strip()
+        if not raw_value:
+            calories = 0
+        else:
+            try:
+                calories = float(raw_value)
+            except (TypeError, ValueError):
+                return {
+                    "ok": False,
+                    "message": "목표 열량에는 숫자를 기입해주세요!",
+                }
+            if not isfinite(calories):
+                return {
+                    "ok": False,
+                    "message": "목표 열량에는 숫자를 기입해주세요!",
+                }
+            calories = int(calories) if calories.is_integer() else calories
+
+        try:
+            Data.saveTargetCalories(calories)
+        except (OSError, ValueError, TypeError) as error:
+            return {
+                "ok": False,
+                "message": f"목표 열량을 저장하지 못했습니다.\n{error}",
+            }
+        return {"ok": True, "target_calories": calories}
 
     @staticmethod
     def addFood(selected_date: date | datetime, meal: str, food_id):
@@ -468,7 +521,9 @@ class OperationManager:
                 return {"ok": False, "message": "체중을 숫자로 입력해 주세요."}
             if not isfinite(numeric_weight) or numeric_weight <= 0:
                 return {"ok": False, "message": "체중은 0보다 큰 숫자여야 합니다."}
-            stored_weight = int(numeric_weight) if numeric_weight.is_integer() else numeric_weight
+            stored_weight = (
+                int(numeric_weight) if numeric_weight.is_integer() else numeric_weight
+            )
         else:
             stored_weight = None
         record = OperationManager._getWritableRecord(selected_date)
@@ -492,7 +547,11 @@ class OperationManager:
     def hasSavedDietRecord(selected_date: date | datetime):
         selected_date = OperationManager._normalizeDate(selected_date)
         records = Data.getRecordsSnapshot()
-        record = records.get(selected_date.isoformat()) if isinstance(records, dict) else None
+        record = (
+            records.get(selected_date.isoformat())
+            if isinstance(records, dict)
+            else None
+        )
         return OperationManager._recordHasFood(record)
 
     @staticmethod
@@ -590,7 +649,9 @@ class OperationManager:
         OperationManager._food_manage_queue = list(
             OperationManager.getMealItems(selected_date, meal)
         )
-        OperationManager._food_manage_queue = [item["id"] for item in OperationManager._food_manage_queue]
+        OperationManager._food_manage_queue = [
+            item["id"] for item in OperationManager._food_manage_queue
+        ]
         return OperationManager.getFoodManageState()
 
     @staticmethod
@@ -687,9 +748,7 @@ class OperationManager:
             or OperationManager._food_manage_meal is None
         ):
             return False
-        record = OperationManager._getWritableRecord(
-            OperationManager._food_manage_date
-        )
+        record = OperationManager._getWritableRecord(OperationManager._food_manage_date)
         record["시간대"][OperationManager._food_manage_meal] = list(
             OperationManager._food_manage_queue
         )
@@ -805,7 +864,7 @@ class OperationManager:
             return {"ok": False, "message": "잠시 기다려 주세요."}
         name = str(name or "").strip()
         if not name:
-            return {"ok": False, "message": "음식 이름을 입력해 주세요."}
+            return {"ok": False, "message": "음식에는 이름이 반드시 있어야 합니다!"}
         try:
             calories = float(str(calories_value).strip())
         except (TypeError, ValueError):
@@ -884,15 +943,15 @@ class OperationManager:
                 continue
             if not isfinite(weight):
                 continue
-            label = "현재" if days_ago == 0 else f"{days_ago}일전"
-            measurements.append((label, weight))
+            day_label = "오늘" if days_ago == 0 else f"{days_ago}일전"
+            measurements.append((record_date.isoformat(), day_label, weight))
         if not measurements:
             return "최근 체중 기록이 없습니다."
         if len(measurements) == 1:
-            label, weight = measurements[0]
-            return f"{label} {weight:g}(Kg)"
-        first_label, first_weight = measurements[0]
-        last_label, last_weight = measurements[-1]
+            record_date, day_label, weight = measurements[0]
+            return f"{record_date} ({day_label}) / {weight:g}(Kg)"
+        first_date, first_day_label, first_weight = measurements[0]
+        last_date, last_day_label, last_weight = measurements[-1]
         weight_change = last_weight - first_weight
         if weight_change < 0:
             change_text = f"▼{abs(weight_change):g}(kg)▼"
@@ -901,8 +960,8 @@ class OperationManager:
         else:
             change_text = "변화 없음 (0 kg)"
         return (
-            f"{first_label} {first_weight:g}(Kg) -> "
-            f"{last_label} {last_weight:g}(Kg)\n{change_text}"
+            f"{first_date} ({first_day_label}) / {first_weight:g}(Kg)\n"
+            f"{last_date} ({last_day_label}) / {last_weight:g}(Kg)\n{change_text}"
         )
 
     @staticmethod
@@ -910,6 +969,15 @@ class OperationManager:
         meals = record.get("시간대", {}) if isinstance(record, dict) else {}
         return isinstance(meals, dict) and any(
             isinstance(items, (list, tuple)) and items for items in meals.values()
+        )
+
+    @staticmethod
+    def _recordHasData(record):
+        if not isinstance(record, dict):
+            return False
+        weight = record.get("체중")
+        return (weight is not None and str(weight).strip() != "") or (
+            OperationManager._recordHasFood(record)
         )
 
     @staticmethod
@@ -924,9 +992,12 @@ class OperationManager:
         data = OperationManager.getManagementData(selected_date)
         lines = []
         for meal, items in data["meals"].items():
-            meal_text = ", ".join(
-                f"{item['name']} [{item['calories']:g} kcal]" for item in items
-            ) or "-"
+            meal_text = (
+                ", ".join(
+                    f"{item['name']} [{item['calories']:g} kcal]" for item in items
+                )
+                or "-"
+            )
             lines.append(f"{meal} : {meal_text}")
         weight = data["weight"] if data["weight"] is not None else "미입력"
         lines.extend(
